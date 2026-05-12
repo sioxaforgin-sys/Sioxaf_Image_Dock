@@ -1,0 +1,11 @@
+# Don't accidentally commit model files if someone downloads them locally
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.env
