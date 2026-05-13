@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────
 #  Stage 1 — builder
-#  Downloads models and installs deps. This layer is discarded;
+#  Downloads models and installs all deps. This stage is discarded;
 #  its history (including R2 URLs) never appears in the final image.
 # ─────────────────────────────────────────────────────────────
 FROM vastai/swarmui:0.9.8-Beta AS builder
@@ -28,6 +28,12 @@ RUN cd /workspace/SwarmUI/dlbackend/ComfyUI && \
         pyyaml Pillow scipy tqdm psutil kornia spandrel \
         sqlalchemy simpleeval blake3 \
         --quiet
+
+# ── SwarmUI venv + system python deps (installed in builder, copied across) ──
+RUN DEPS="torchsde einops transformers safetensors aiohttp pyyaml \
+          Pillow scipy tqdm psutil kornia spandrel sqlalchemy simpleeval blake3" && \
+    /venv/main/bin/pip install $DEPS --quiet && \
+    python3 -m pip install $DEPS --quiet
 
 # ── Model directories ─────────────────────────────────────────
 RUN mkdir -p \
@@ -63,8 +69,8 @@ RUN wget -q \
 
 # ─────────────────────────────────────────────────────────────
 #  Stage 2 — final clean image
-#  Fresh base: no wget, no URLs, no pip commands.
-#  docker history on this image reveals nothing sensitive.
+#  Fresh base: no wget, no URLs, no pip commands in this stage.
+#  docker history on the pushed image reveals nothing sensitive.
 # ─────────────────────────────────────────────────────────────
 FROM vastai/swarmui:0.9.8-Beta
 
@@ -72,19 +78,15 @@ RUN apt-get update && apt-get install -y \
     git curl \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Copy compiled assets from builder (no history of how they arrived) ──
+# ── Copy all built/downloaded assets from builder ─────────────
 COPY --from=builder /workspace/SwarmUI/dlbackend/ComfyUI \
                     /workspace/SwarmUI/dlbackend/ComfyUI
 
 COPY --from=builder /workspace/SwarmUI/Models \
                     /workspace/SwarmUI/Models
 
-# ── Same deps into SwarmUI's own venv + system python ─────────
-# These are public packages — safe to show in history.
-RUN DEPS="torchsde einops transformers safetensors aiohttp pyyaml \
-          Pillow scipy tqdm psutil kornia spandrel sqlalchemy simpleeval blake3" && \
-    /venv/main/bin/pip install $DEPS --quiet && \
-    python3 -m pip install $DEPS --quiet
+COPY --from=builder /venv/main \
+                    /venv/main
 
 # ── Backends.fds ──────────────────────────────────────────────
 RUN mkdir -p /workspace/SwarmUI/Data
