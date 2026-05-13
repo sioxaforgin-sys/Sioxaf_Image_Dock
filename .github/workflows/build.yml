@@ -1,9 +1,7 @@
 name: Build & Push SwarmUI Image
 
 on:
-  # Run manually from the GitHub Actions tab
   workflow_dispatch:
-  # Also rebuild automatically when Dockerfile or config changes
   push:
     branches: [main]
     paths:
@@ -18,7 +16,6 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
 
-    # Give the workflow permission to push to GHCR
     permissions:
       contents: read
       packages: write
@@ -28,22 +25,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Free up disk space ─────────────────────────────────
-      # GitHub runners have ~14GB free by default. Our image with
-      # two checkpoints (~14GB) + everything else needs more room.
+      # ── 2. Aggressively free disk space (~25 GB recovered) ────
+      # ubuntu-latest ships with ~14 GB free. Our image needs ~30 GB
+      # (base + two checkpoints + ComfyUI venv + layer cache).
+      # This action removes Android SDK, .NET, Haskell, large apt
+      # packages, pre-pulled Docker images, and swap — freeing ~25 GB.
       - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo docker image prune -af
-          df -h
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false   # keep Go/Node/Python — needed by actions
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Show available disk after cleanup
+        run: df -h /
 
       # ── 3. Set up Docker Buildx ───────────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          # Use a larger build cache driver
-          driver-opts: |
-            image=moby/buildkit:latest
 
       # ── 4. Log in to GHCR ────────────────────────────────────
       - name: Log in to GitHub Container Registry
@@ -63,9 +66,7 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-
 
-      # ── 6. Build and push ────────────────────────────────────
-      # Models are downloaded during build via wget (R2 → runner → image layer).
-      # This is server-to-server so it's fast (~1-2 min per checkpoint).
+      # ── 6. Build and push ─────────────────────────────────────
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -73,20 +74,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Cache layers between builds so re-builds only re-download
-          # what actually changed (e.g. a new LoRA, not the checkpoints)
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
-          # Increase timeout — large model downloads can take 20-30 min
-          build-args: |
-            BUILDKIT_STEP_LOG_MAX_SIZE=50000000
 
-      # ── 7. Report final image size ────────────────────────────
+      # ── 7. Report digest ──────────────────────────────────────
       - name: Report image digest
         run: |
           echo "✅ Image pushed successfully!"
           echo "Image: ghcr.io/sioxaforgin-sys/swarmui-sioxa:latest"
-          echo "Digest: ${{ steps.build-push.outputs.digest }}"
-          echo ""
-          echo "Use this in Vast.ai Image Path:Tag field:"
-          echo "  ghcr.io/sioxaforgin-sys/swarmui-sioxa:latest"
