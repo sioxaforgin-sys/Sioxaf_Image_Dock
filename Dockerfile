@@ -29,12 +29,6 @@ RUN cd /workspace/SwarmUI/dlbackend/ComfyUI && \
         sqlalchemy simpleeval blake3 \
         --quiet
 
-# ── SwarmUI venv + system python deps (installed in builder, copied across) ──
-RUN DEPS="torchsde einops transformers safetensors aiohttp pyyaml \
-          Pillow scipy tqdm psutil kornia spandrel sqlalchemy simpleeval blake3" && \
-    /venv/main/bin/pip install $DEPS --quiet && \
-    python3 -m pip install $DEPS --quiet
-
 # ── Model directories ─────────────────────────────────────────
 RUN mkdir -p \
     /workspace/SwarmUI/Models/Stable-Diffusion \
@@ -84,9 +78,6 @@ COPY --from=builder /workspace/SwarmUI/dlbackend/ComfyUI \
 
 COPY --from=builder /workspace/SwarmUI/Models \
                     /workspace/SwarmUI/Models
-
-COPY --from=builder /venv/main \
-                    /venv/main
 
 # ── Backends.fds ──────────────────────────────────────────────
 RUN mkdir -p /workspace/SwarmUI/Data
